@@ -330,6 +330,7 @@ class EmoUID(nn.Module):
                 "task": task_loss,
                 "orthogonality": factorization_losses["orthogonality"],
                 "reconstruction": factorization_losses["reconstruction"],
+                "private_cycle": factorization_losses["private_cycle"],
                 "factorization": factorization_losses["factorization"],
                 "gram": pgu_output["gram"],
                 "sop": pgu_output["sop"],

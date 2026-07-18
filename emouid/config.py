@@ -16,6 +16,40 @@ class LossWeights:
 
 
 @dataclass(frozen=True)
+class TrainingConfig:
+    """Dataset-specific optimization protocol reported with the manuscript."""
+
+    batch_size: int
+    max_epochs: int
+    early_stopping_patience: int
+    weight_decay: float
+    optimizer: str = "adam"
+    learning_rate: float = 1e-4
+    lr_scheduler_patience: int = 5
+    lr_scheduler_factor: float = 0.5
+    gradient_clip: float = 0.6
+    checkpoint_metric: str = "weighted_f1"
+
+    def __post_init__(self) -> None:
+        positive_counts = (
+            self.batch_size,
+            self.max_epochs,
+            self.early_stopping_patience,
+            self.lr_scheduler_patience,
+        )
+        if any(value <= 0 for value in positive_counts):
+            raise ValueError("Training counts and patience values must be positive.")
+        if self.learning_rate <= 0.0 or self.weight_decay < 0.0:
+            raise ValueError("learning_rate must be positive and weight_decay non-negative.")
+        if not 0.0 < self.lr_scheduler_factor < 1.0:
+            raise ValueError("lr_scheduler_factor must be in (0, 1).")
+        if self.gradient_clip <= 0.0:
+            raise ValueError("gradient_clip must be positive.")
+        if not self.optimizer.strip() or not self.checkpoint_metric.strip():
+            raise ValueError("optimizer and checkpoint_metric must be non-empty.")
+
+
+@dataclass(frozen=True)
 class EmoUIDConfig:
     """Architecture configuration for the four evaluated benchmarks."""
 
@@ -23,6 +57,7 @@ class EmoUIDConfig:
     vision_input_dim: int
     acoustic_input_dim: int
     sentiment_anchors: Tuple[float, ...]
+    training: TrainingConfig
 
     model_dim: int = 64
     num_heads: int = 8
@@ -126,6 +161,12 @@ _DATASET_PRESETS = {
         vision_kernel_size=5,
         acoustic_kernel_size=5,
         use_bert=True,
+        training=TrainingConfig(
+            batch_size=16,
+            max_epochs=60,
+            early_stopping_patience=10,
+            weight_decay=0.005,
+        ),
     ),
     "mosei": dict(
         language_input_dim=768,
@@ -141,6 +182,12 @@ _DATASET_PRESETS = {
         vision_kernel_size=3,
         acoustic_kernel_size=1,
         use_bert=True,
+        training=TrainingConfig(
+            batch_size=64,
+            max_epochs=45,
+            early_stopping_patience=8,
+            weight_decay=0.001,
+        ),
     ),
     "chsims": dict(
         language_input_dim=768,
@@ -152,6 +199,12 @@ _DATASET_PRESETS = {
         shared_transformer_layers=4,
         private_transformer_layers=4,
         feedforward_dim=120,
+        training=TrainingConfig(
+            batch_size=4,
+            max_epochs=30,
+            early_stopping_patience=6,
+            weight_decay=0.001,
+        ),
     ),
     "chsimsv2": dict(
         language_input_dim=768,
@@ -163,6 +216,12 @@ _DATASET_PRESETS = {
         shared_transformer_layers=4,
         private_transformer_layers=4,
         feedforward_dim=120,
+        training=TrainingConfig(
+            batch_size=4,
+            max_epochs=30,
+            early_stopping_patience=6,
+            weight_decay=0.001,
+        ),
     ),
 }
 

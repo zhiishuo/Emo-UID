@@ -7,7 +7,7 @@ method variant.
 | Manuscript | Implementation | Role |
 |---|---|---|
 | Eq. (2) | `BertLanguageEncoder`, `TemporalProjector` | Dataset-specific language encoding and modality front-ends |
-| Eqs. (3)-(4) | `SharedPrivateFactorization` | Shared/private decomposition, orthogonality, and reconstruction |
+| Eqs. (3)-(4) | `SharedPrivateFactorization` | Shared/private decomposition, orthogonality, reconstruction, and private-cycle consistency |
 | Eqs. (5)-(7) | `PrototypeGramUnity._gram_volume_logits` | Symmetric tri-modal Gram-volume contrastive learning |
 | Eqs. (8)-(11) | `soft_ordinal_target`, `PrototypeGramUnity` | Soft ordinal prototype anchoring and EMA updates |
 | Eq. (12) | `losses["pgu"]` | `L_PGU = L_Gram + L_sop` |
@@ -19,7 +19,9 @@ method variant.
 
 ## Computational order
 
-1. Project each modality and factorize it into shared and private streams.
+1. Project each modality and factorize it into shared and private streams. Decode
+   each shared-private pair, re-encode the reconstruction with its
+   modality-specific private encoder, and apply private-cycle consistency.
 2. Apply PGU to pooled shared representations before Transformer enhancement.
 3. Enhance the three common streams with independent DMD-style self-attention
    stacks. For each private stream, attend separately to the other two

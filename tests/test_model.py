@@ -5,7 +5,7 @@ import pytest
 import torch
 import torch.nn as nn
 
-from emouid import EmoUID, EmoUIDConfig, dataset_config
+from emouid import EmoUID, EmoUIDConfig, TrainingConfig, dataset_config
 from emouid.modules import SharedPrivateFactorization
 
 
@@ -16,6 +16,12 @@ def config() -> EmoUIDConfig:
         vision_input_dim=6,
         acoustic_input_dim=4,
         sentiment_anchors=(-1.0, 0.0, 1.0),
+        training=TrainingConfig(
+            batch_size=4,
+            max_epochs=3,
+            early_stopping_patience=2,
+            weight_decay=0.0,
+        ),
         model_dim=12,
         num_heads=3,
         shared_transformer_layers=1,
@@ -80,6 +86,7 @@ def test_forward_matches_architecture_contract(config: EmoUIDConfig) -> None:
         "task",
         "orthogonality",
         "reconstruction",
+        "private_cycle",
         "factorization",
         "gram",
         "sop",
@@ -132,6 +139,17 @@ def test_reconstruction_uses_squared_frobenius_sum() -> None:
     assert torch.allclose(loss, torch.tensor(3.0))
 
 
+def test_private_cycle_uses_squared_frobenius_sum() -> None:
+    factorization = SharedPrivateFactorization(model_dim=2, dropout=0.0, epsilon=1e-8)
+    private = torch.ones(2, 2, 2)
+    reencoded = torch.zeros_like(private)
+    valid_mask = torch.tensor([[1, 0], [1, 1]], dtype=torch.bool)
+
+    loss = factorization._cycle_consistency_loss(reencoded, private, valid_mask)
+
+    assert torch.allclose(loss, torch.tensor(3.0))
+
+
 def test_grouped_objective_matches_equation_25(config: EmoUIDConfig) -> None:
     model = EmoUID(config)
     losses = model(**make_batch())["losses"]
@@ -143,7 +161,10 @@ def test_grouped_objective_matches_equation_25(config: EmoUIDConfig) -> None:
         + weights.dc * losses["dc"]
     )
     assert torch.allclose(
-        losses["factorization"], losses["orthogonality"] + losses["reconstruction"]
+        losses["factorization"],
+        losses["orthogonality"]
+        + losses["reconstruction"]
+        + losses["private_cycle"],
     )
     assert torch.allclose(losses["pgu"], losses["gram"] + losses["sop"])
     assert torch.allclose(losses["dc"], losses["ordinal"] + config.cps_weight * losses["cps"])
@@ -263,6 +284,9 @@ def test_dataset_presets_cover_revised_benchmarks() -> None:
         "acoustic": 5,
     }
     assert mosi.use_bert is True
+    assert mosi.training.batch_size == 16
+    assert mosi.training.max_epochs == 60
+    assert mosi.training.early_stopping_patience == 10
     chsimsv2 = dataset_config("CH-SIMS v2.0")
     assert chsimsv2.input_dims == {
         "language": 768,
@@ -270,6 +294,9 @@ def test_dataset_presets_cover_revised_benchmarks() -> None:
         "acoustic": 25,
     }
     assert chsimsv2.use_bert is False
+    assert chsimsv2.training.batch_size == 4
+    assert chsimsv2.training.max_epochs == 30
+    assert chsimsv2.training.early_stopping_patience == 6
 
 
 def test_mosi_core_parameter_count_is_explicit() -> None:

@@ -157,6 +157,17 @@ class SharedPrivateFactorization(nn.Module):
         # Eq. (4): squared Frobenius norm per sample, averaged over the batch.
         return squared_error.sum(dim=(1, 2)).mean()
 
+    def _cycle_consistency_loss(
+        self,
+        reencoded_private: Tensor,
+        private: Tensor,
+        valid_mask: Tensor,
+    ) -> Tensor:
+        weights = valid_mask.unsqueeze(-1).to(private.dtype)
+        squared_error = (reencoded_private - private).square() * weights
+        # Eq. (4): re-encode the reconstruction and preserve its private factor.
+        return squared_error.sum(dim=(1, 2)).mean()
+
     def forward(
         self,
         features: Mapping[str, Tensor],
@@ -165,8 +176,10 @@ class SharedPrivateFactorization(nn.Module):
         shared: Dict[str, Tensor] = {}
         private: Dict[str, Tensor] = {}
         reconstructed: Dict[str, Tensor] = {}
+        reencoded_private: Dict[str, Tensor] = {}
         orthogonality = features[MODALITIES[0]].new_zeros(())
         reconstruction = features[MODALITIES[0]].new_zeros(())
+        private_cycle = features[MODALITIES[0]].new_zeros(())
 
         for modality in MODALITIES:
             mask_values = masks[modality].unsqueeze(-1).to(features[modality].dtype)
@@ -175,21 +188,29 @@ class SharedPrivateFactorization(nn.Module):
             reconstructed[modality] = self.decoders[modality](
                 torch.cat([shared[modality], private[modality]], dim=-1)
             ) * mask_values
+            reencoded_private[modality] = self.private_encoders[modality](
+                reconstructed[modality]
+            ) * mask_values
             orthogonality = orthogonality + self._orthogonality_loss(
                 shared[modality], private[modality], masks[modality]
             )
             reconstruction = reconstruction + self._reconstruction_loss(
                 reconstructed[modality], features[modality], masks[modality]
             )
+            private_cycle = private_cycle + self._cycle_consistency_loss(
+                reencoded_private[modality], private[modality], masks[modality]
+            )
 
         return {
             "shared": shared,
             "private": private,
             "reconstructed": reconstructed,
+            "reencoded_private": reencoded_private,
             "losses": {
                 "orthogonality": orthogonality,
                 "reconstruction": reconstruction,
-                "factorization": orthogonality + reconstruction,
+                "private_cycle": private_cycle,
+                "factorization": orthogonality + reconstruction + private_cycle,
             },
         }
 

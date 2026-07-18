@@ -12,8 +12,8 @@ The code follows the final method in the paper, in computational order:
 
 1. BERT language encoding for CMU-MOSI/CMU-MOSEI and modality-specific temporal
    front-ends;
-2. shared-private feature factorization with orthogonality and squared-Frobenius
-   reconstruction;
+2. shared-private feature factorization with orthogonality, squared-Frobenius
+   reconstruction, and private-cycle consistency;
 3. Prototype Gram Unity (PGU) on the pre-enhancement shared representations;
 4. three independent common-stream DMD Transformer stacks, followed by six
    directed cross-modal Transformers and three modality-indexed memory
@@ -68,6 +68,24 @@ python -m pip install -e '.[bert]'
 The presets do not contain dataset paths or redistribute benchmark data.
 `EmoUID.parameter_report()` separates the active language-encoder and Emo-UID
 core parameters so that model size is not inferred from legacy experiment code.
+
+## Released training configurations
+
+Each dataset preset also exposes the optimization protocol through
+`dataset_config(dataset).training`:
+
+| Dataset | Batch | Max epochs | Early-stop patience | Weight decay |
+|---|---:|---:|---:|---:|
+| CMU-MOSI | 16 | 60 | 10 | 0.005 |
+| CMU-MOSEI | 64 | 45 | 8 | 0.001 |
+| CH-SIMS | 4 | 30 | 6 | 0.001 |
+| CH-SIMS v2.0 | 4 | 30 | 6 | 0.001 |
+
+All presets use Adam with learning rate `1e-4`, gradient clipping at `0.6`,
+and a factor-`0.5` learning-rate reduction after five epochs without validation
+improvement. Checkpoints are selected by validation weighted F1. The model
+presets expose `K=2`, `theta=0.9`, `tau_o=0.2`, `lambda_CPS=1`, and grouped
+objective weights `lambda_f=lambda_p=lambda_d=1`.
 
 ## Paper-to-code map
 
