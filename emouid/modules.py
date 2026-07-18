@@ -218,32 +218,154 @@ class SinusoidalPositionEncoding(nn.Module):
         )
 
 
-def _build_transformer(
-    model_dim: int,
-    num_heads: int,
-    layers: int,
-    feedforward_dim: int,
-    dropout: float,
-) -> nn.TransformerEncoder:
-    layer = nn.TransformerEncoderLayer(
-        d_model=model_dim,
-        nhead=num_heads,
-        dim_feedforward=feedforward_dim,
-        dropout=dropout,
-        activation="gelu",
-        batch_first=True,
-        norm_first=True,
+def _future_attention_mask(
+    query_length: int,
+    context_length: int,
+    device: torch.device,
+) -> Tensor:
+    diagonal = 1 + abs(context_length - query_length)
+    return torch.triu(
+        torch.ones(query_length, context_length, dtype=torch.bool, device=device),
+        diagonal=diagonal,
     )
-    return nn.TransformerEncoder(
-        layer,
-        num_layers=layers,
-        norm=nn.LayerNorm(model_dim),
-        enable_nested_tensor=False,
-    )
+
+
+def _initialize_linear(linear: nn.Linear) -> None:
+    nn.init.xavier_uniform_(linear.weight)
+    if linear.bias is not None:
+        nn.init.zeros_(linear.bias)
+
+
+class DMDStyleTransformerLayer(nn.Module):
+    """Pre-norm self- or cross-attention layer used by the DMD backbone."""
+
+    def __init__(
+        self,
+        model_dim: int,
+        num_heads: int,
+        feedforward_dim: int,
+        dropout: float,
+    ) -> None:
+        super().__init__()
+        self.attention = nn.MultiheadAttention(
+            model_dim,
+            num_heads,
+            dropout=dropout,
+            batch_first=True,
+        )
+        self.attention_norm = nn.LayerNorm(model_dim)
+        self.feedforward_norm = nn.LayerNorm(model_dim)
+        self.feedforward_in = nn.Linear(model_dim, feedforward_dim)
+        self.feedforward_out = nn.Linear(feedforward_dim, model_dim)
+        self.residual_dropout = nn.Dropout(dropout)
+        self.activation_dropout = nn.Dropout(dropout)
+        nn.init.xavier_uniform_(self.attention.out_proj.weight)
+        nn.init.zeros_(self.attention.out_proj.bias)
+        _initialize_linear(self.feedforward_in)
+        _initialize_linear(self.feedforward_out)
+
+    def forward(
+        self,
+        query: Tensor,
+        context: Optional[Tensor],
+        context_mask: Tensor,
+        attention_mask: Optional[Tensor],
+    ) -> Tensor:
+        residual = query
+        normalized_query = self.attention_norm(query)
+        if context is None:
+            key = value = normalized_query
+        else:
+            key = value = self.attention_norm(context)
+        attended, _ = self.attention(
+            normalized_query,
+            key,
+            value,
+            attn_mask=attention_mask,
+            key_padding_mask=~context_mask,
+            need_weights=False,
+        )
+        query = residual + self.residual_dropout(attended)
+
+        residual = query
+        hidden = self.feedforward_norm(query)
+        hidden = F.relu(self.feedforward_in(hidden))
+        hidden = self.activation_dropout(hidden)
+        hidden = self.feedforward_out(hidden)
+        return residual + self.residual_dropout(hidden)
+
+
+class DMDStyleTransformer(nn.Module):
+    """DMD Transformer stack with optional fixed cross-modal context."""
+
+    def __init__(
+        self,
+        model_dim: int,
+        num_heads: int,
+        layers: int,
+        feedforward_dim: int,
+        dropout: float,
+        maximum_length: int,
+        causal_attention: bool,
+    ) -> None:
+        super().__init__()
+        self.scale = math.sqrt(model_dim)
+        self.causal_attention = causal_attention
+        self.position = SinusoidalPositionEncoding(model_dim, maximum_length)
+        self.embedding_dropout = nn.Dropout(dropout)
+        self.layers = nn.ModuleList(
+            [
+                DMDStyleTransformerLayer(
+                    model_dim,
+                    num_heads,
+                    feedforward_dim,
+                    dropout,
+                )
+                for _ in range(layers)
+            ]
+        )
+        self.final_norm = nn.LayerNorm(model_dim)
+
+    def _embed(self, sequence: Tensor) -> Tensor:
+        return self.embedding_dropout(self.position(sequence * self.scale))
+
+    def forward(
+        self,
+        query: Tensor,
+        query_mask: Tensor,
+        context: Optional[Tensor] = None,
+        context_mask: Optional[Tensor] = None,
+    ) -> Tensor:
+        query = self._embed(query)
+        if context is None:
+            embedded_context = None
+            effective_context_mask = query_mask
+            context_length = query.shape[1]
+        else:
+            if context_mask is None:
+                raise ValueError("context_mask is required for cross-modal attention.")
+            embedded_context = self._embed(context)
+            effective_context_mask = context_mask
+            context_length = context.shape[1]
+
+        attention_mask = None
+        if self.causal_attention:
+            attention_mask = _future_attention_mask(
+                query.shape[1], context_length, query.device
+            )
+        for layer in self.layers:
+            query = layer(
+                query,
+                embedded_context,
+                effective_context_mask,
+                attention_mask,
+            )
+        query = self.final_norm(query)
+        return query * query_mask.unsqueeze(-1).to(query.dtype)
 
 
 class SharedStreamTransformer(nn.Module):
-    """One shared Transformer applied independently to common streams."""
+    """One modality-indexed DMD Transformer for a common stream."""
 
     def __init__(
         self,
@@ -253,23 +375,31 @@ class SharedStreamTransformer(nn.Module):
         feedforward_dim: int,
         dropout: float,
         maximum_length: int,
+        causal_attention: bool,
     ) -> None:
         super().__init__()
-        self.position = SinusoidalPositionEncoding(model_dim, maximum_length)
-        self.encoder = _build_transformer(
-            model_dim, num_heads, layers, feedforward_dim, dropout
+        self.encoder = DMDStyleTransformer(
+            model_dim=model_dim,
+            num_heads=num_heads,
+            layers=layers,
+            feedforward_dim=feedforward_dim,
+            dropout=dropout,
+            maximum_length=maximum_length,
+            causal_attention=causal_attention,
         )
 
     def forward(self, sequence: Tensor, valid_mask: Tensor) -> Tensor:
-        enhanced = self.encoder(
-            self.position(sequence),
-            src_key_padding_mask=~valid_mask,
-        )
-        return enhanced * valid_mask.unsqueeze(-1).to(enhanced.dtype)
+        return self.encoder(sequence, valid_mask)
 
 
-class MultimodalPrivateTransformer(nn.Module):
-    """Jointly refine private streams while retaining modality-indexed outputs."""
+class DMDStylePrivateTransformer(nn.Module):
+    """Six directed cross-modal stacks followed by three memory stacks."""
+
+    _SOURCE_ORDER = {
+        "language": ("acoustic", "vision"),
+        "acoustic": ("language", "vision"),
+        "vision": ("language", "acoustic"),
+    }
 
     def __init__(
         self,
@@ -279,13 +409,38 @@ class MultimodalPrivateTransformer(nn.Module):
         feedforward_dim: int,
         dropout: float,
         maximum_length: int,
+        causal_attention: bool,
     ) -> None:
         super().__init__()
-        self.position = SinusoidalPositionEncoding(model_dim, maximum_length)
-        self.modality_embeddings = nn.Parameter(torch.zeros(len(MODALITIES), model_dim))
-        nn.init.normal_(self.modality_embeddings, std=0.02)
-        self.encoder = _build_transformer(
-            model_dim, num_heads, layers, feedforward_dim, dropout
+        self.cross_transformers = nn.ModuleDict(
+            {
+                f"{target}_from_{source}": DMDStyleTransformer(
+                    model_dim=model_dim,
+                    num_heads=num_heads,
+                    layers=layers,
+                    feedforward_dim=feedforward_dim,
+                    dropout=dropout,
+                    maximum_length=maximum_length,
+                    causal_attention=causal_attention,
+                )
+                for target, sources in self._SOURCE_ORDER.items()
+                for source in sources
+            }
+        )
+        memory_dim = 2 * model_dim
+        self.memory_transformers = nn.ModuleDict(
+            {
+                modality: DMDStyleTransformer(
+                    model_dim=memory_dim,
+                    num_heads=num_heads,
+                    layers=max(layers, 3),
+                    feedforward_dim=2 * feedforward_dim,
+                    dropout=dropout,
+                    maximum_length=maximum_length,
+                    causal_attention=causal_attention,
+                )
+                for modality in MODALITIES
+            }
         )
 
     def forward(
@@ -293,27 +448,23 @@ class MultimodalPrivateTransformer(nn.Module):
         streams: Mapping[str, Tensor],
         masks: Mapping[str, Tensor],
     ) -> Dict[str, Tensor]:
-        segments = []
-        segment_masks = []
-        lengths = []
-        for index, modality in enumerate(MODALITIES):
-            stream = self.position(streams[modality])
-            stream = stream + self.modality_embeddings[index].reshape(1, 1, -1)
-            segments.append(stream)
-            segment_masks.append(masks[modality])
-            lengths.append(stream.shape[1])
-
-        concatenated = torch.cat(segments, dim=1)
-        concatenated_mask = torch.cat(segment_masks, dim=1)
-        enhanced = self.encoder(
-            concatenated,
-            src_key_padding_mask=~concatenated_mask,
-        )
-        split_streams = enhanced.split(lengths, dim=1)
-        return {
-            modality: stream * masks[modality].unsqueeze(-1).to(stream.dtype)
-            for modality, stream in zip(MODALITIES, split_streams)
-        }
+        enhanced: Dict[str, Tensor] = {}
+        for target, sources in self._SOURCE_ORDER.items():
+            cross_outputs = [
+                self.cross_transformers[f"{target}_from_{source}"](
+                    streams[target],
+                    masks[target],
+                    context=streams[source],
+                    context_mask=masks[source],
+                )
+                for source in sources
+            ]
+            target_context = torch.cat(cross_outputs, dim=-1)
+            enhanced[target] = self.memory_transformers[target](
+                target_context,
+                masks[target],
+            )
+        return enhanced
 
 
 class ConsensusPool(nn.Module):
@@ -475,12 +626,18 @@ class PrototypeGramUnity(nn.Module):
 class DiversityClassification(nn.Module):
     """Ordinal evidence heads and Confidence Product Suppression."""
 
-    def __init__(self, model_dim: int, num_anchors: int, cps_weight: float) -> None:
+    def __init__(
+        self,
+        consensus_dim: int,
+        private_dim: int,
+        num_anchors: int,
+        cps_weight: float,
+    ) -> None:
         super().__init__()
         self.cps_weight = cps_weight
-        self.consensus_head = nn.Linear(model_dim, num_anchors)
+        self.consensus_head = nn.Linear(consensus_dim, num_anchors)
         self.private_heads = nn.ModuleDict(
-            {name: nn.Linear(model_dim, num_anchors) for name in MODALITIES}
+            {name: nn.Linear(private_dim, num_anchors) for name in MODALITIES}
         )
 
     def forward(
@@ -522,16 +679,22 @@ class DiversityClassification(nn.Module):
 class ReliabilityGatedResidualFusion(nn.Module):
     """Asymmetric consensus-plus-private-residual fusion from Eqs. (20)-(23)."""
 
-    def __init__(self, model_dim: int, gate_hidden_dim: int, epsilon: float) -> None:
+    def __init__(
+        self,
+        consensus_dim: int,
+        private_dim: int,
+        gate_hidden_dim: int,
+        epsilon: float,
+    ) -> None:
         super().__init__()
         self.epsilon = epsilon
         self.private_projections = nn.ModuleDict(
-            {name: nn.Linear(model_dim, model_dim) for name in MODALITIES}
+            {name: nn.Linear(private_dim, consensus_dim) for name in MODALITIES}
         )
         self.gates = nn.ModuleDict(
             {
                 name: nn.Sequential(
-                    nn.Linear(2 * model_dim + 2, gate_hidden_dim),
+                    nn.Linear(2 * consensus_dim + 2, gate_hidden_dim),
                     nn.GELU(),
                     nn.Linear(gate_hidden_dim, 1),
                 )

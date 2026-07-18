@@ -15,7 +15,9 @@ The code follows the final method in the paper, in computational order:
 2. shared-private feature factorization with orthogonality and squared-Frobenius
    reconstruction;
 3. Prototype Gram Unity (PGU) on the pre-enhancement shared representations;
-4. shared-stream and joint private-stream Transformer enhancement;
+4. three independent common-stream DMD Transformer stacks, followed by six
+   directed cross-modal Transformers and three modality-indexed memory
+   Transformers for the private streams;
 5. Diversity Classification (DC) with soft ordinal supervision and Confidence
    Product Suppression (CPS);
 6. reliability-gated residual fusion; and
@@ -28,6 +30,9 @@ are supervised by the sample-level soft ordinal target and must not be
 interpreted as classifiers trained with official unimodal sentiment labels.
 
 There is no teacher network or knowledge-distillation objective in this code.
+The Transformer enhancement topology follows DMD, while DMD-specific
+distillation heads, flattened auxiliary predictors, and ensemble projections
+are not part of Emo-UID.
 
 ## Installation
 

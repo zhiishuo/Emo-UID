@@ -74,6 +74,8 @@ def test_forward_matches_architecture_contract(config: EmoUIDConfig) -> None:
     for gate in output["gates"].values():
         assert gate.shape == (4, 1)
         assert torch.all((gate > 0.0) & (gate < 1.0))
+    for private in output["representations"]["private"].values():
+        assert private.shape == (4, 2 * config.model_dim)
     assert set(output["losses"]) == {
         "task",
         "orthogonality",
@@ -153,9 +155,12 @@ def test_module_execution_order_matches_revised_method(config: EmoUIDConfig) -> 
     order: list[str] = []
     hooks = [
         model.pgu.register_forward_hook(lambda *_: order.append("pgu")),
-        model.shared_enhancer.register_forward_hook(
-            lambda *_: order.append("shared_enhancement")
-        ),
+        *[
+            enhancer.register_forward_hook(
+                lambda *_: order.append("shared_enhancement")
+            )
+            for enhancer in model.shared_enhancers.values()
+        ],
         model.private_enhancer.register_forward_hook(
             lambda *_: order.append("private_enhancement")
         ),
@@ -176,6 +181,26 @@ def test_module_execution_order_matches_revised_method(config: EmoUIDConfig) -> 
     assert order.count("shared_enhancement") == 3
     assert order.index("private_enhancement") < order.index("dc")
     assert order.index("dc") < order.index("gate")
+
+
+def test_transformer_topology_matches_dmd_backbone(config: EmoUIDConfig) -> None:
+    model = EmoUID(config)
+
+    assert set(model.shared_enhancers) == {"language", "vision", "acoustic"}
+    assert len({id(module) for module in model.shared_enhancers.values()}) == 3
+    assert set(model.private_enhancer.cross_transformers) == {
+        "language_from_acoustic",
+        "language_from_vision",
+        "acoustic_from_language",
+        "acoustic_from_vision",
+        "vision_from_language",
+        "vision_from_acoustic",
+    }
+    assert set(model.private_enhancer.memory_transformers) == {
+        "language",
+        "vision",
+        "acoustic",
+    }
 
 
 def test_prototype_ema_updates_only_during_labeled_training(
@@ -251,9 +276,23 @@ def test_mosi_core_parameter_count_is_explicit() -> None:
     model = EmoUID(dataset_config("CMU-MOSI", use_bert=False))
     report = model.parameter_report()
 
+    def parameter_count(module: nn.Module) -> int:
+        return sum(parameter.numel() for parameter in module.parameters())
+
     assert report["language_encoder"] == 0
-    assert report["emouid_core"] == 523_406
-    assert report["total"] == 523_406
+    assert report["emouid_core"] == 2_846_906
+    assert report["total"] == 2_846_906
+    assert {
+        parameter_count(module) for module in model.shared_enhancers.values()
+    } == {122_700}
+    assert {
+        parameter_count(module)
+        for module in model.private_enhancer.cross_transformers.values()
+    } == {122_700}
+    assert {
+        parameter_count(module)
+        for module in model.private_enhancer.memory_transformers.values()
+    } == {485_400}
 
 
 def test_bert_path_is_trainable_and_included_in_parameter_report(

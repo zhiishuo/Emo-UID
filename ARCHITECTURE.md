@@ -11,7 +11,7 @@ method variant.
 | Eqs. (5)-(7) | `PrototypeGramUnity._gram_volume_logits` | Symmetric tri-modal Gram-volume contrastive learning |
 | Eqs. (8)-(11) | `soft_ordinal_target`, `PrototypeGramUnity` | Soft ordinal prototype anchoring and EMA updates |
 | Eq. (12) | `losses["pgu"]` | `L_PGU = L_Gram + L_sop` |
-| Eq. (13) | `SharedStreamTransformer`, `MultimodalPrivateTransformer` | Independent common-stream and joint private-stream enhancement |
+| Eq. (13) | `SharedStreamTransformer`, `DMDStylePrivateTransformer` | Three independent common-stream stacks, six directed cross-modal stacks, and three memory stacks following the DMD Transformer topology |
 | Eqs. (14)-(16) | `ConsensusPool`, `DiversityClassification` | Common ordinal decision coordinate and auxiliary distributions |
 | Eqs. (17)-(19) | `DiversityClassification` | Pairwise surface, tri-modal volume, and CPS |
 | Eqs. (20)-(23) | `ReliabilityGatedResidualFusion` | Entropy/JSD-conditioned scalar gates and residual fusion |
@@ -21,7 +21,10 @@ method variant.
 
 1. Project each modality and factorize it into shared and private streams.
 2. Apply PGU to pooled shared representations before Transformer enhancement.
-3. Independently enhance common streams and jointly enhance private streams.
+3. Enhance the three common streams with independent DMD-style self-attention
+   stacks. For each private stream, attend separately to the other two
+   modalities, concatenate the two directed outputs, and refine the resulting
+   `2d` sequence with a modality-indexed memory Transformer.
 4. Pool the enhanced streams and map them into one ordered sentiment coordinate.
 5. Apply CPS to modality-indexed private distributions.
 6. Estimate one reliability gate per private stream from its residual feature,
@@ -39,9 +42,13 @@ method variant.
   evidence estimators supervised by the sample-level target. Their outputs are
   not official unimodal sentiment predictions.
 - **Private streams remain modality-indexed.** They use separate private
-  encoders and retain separate outputs after joint context modeling. A common
-  ordinal target supplies a shared decision coordinate; it does not make the
-  private representations identical.
+  encoders, target-specific directed cross-modal attention, and separate memory
+  Transformers. A common ordinal target supplies a shared decision coordinate;
+  it does not make the private representations identical.
+- **The Transformer topology follows DMD.** The implementation contains three
+  independent common-stream stacks, six directed private cross-modal stacks,
+  and three `2d` memory stacks. DMD-specific distillation and prediction heads
+  are not registered in Emo-UID.
 - **Fusion is asymmetric.** Consensus is the direct path. Private features enter
   prediction only as modality-specific, reliability-weighted residuals.
 - **Discrepancy measures are not conflated.** JSD in the gate is an internal,
@@ -59,9 +66,11 @@ forward graph; legacy KD modules and historical experiment heads are neither
 registered nor counted.
 
 For the CMU-MOSI preset, BERT-base-uncased without its unused pooling head has
-108,891,648 parameters and the complete Emo-UID core has 523,406 parameters,
-giving 109,415,054 active trainable parameters in total. The EMA prototype bank
-is a non-trainable buffer and is therefore not included in the parameter count.
+108,891,648 parameters and the complete Emo-UID core has 2,846,906 parameters,
+giving 111,738,554 active trainable parameters in total. The core includes all
+three common, six cross-modal, and three memory Transformer stacks. The EMA
+prototype bank is a non-trainable buffer and is therefore not included in the
+parameter count.
 
 ## Tensor conventions
 
@@ -69,8 +78,10 @@ is a non-trainable buffer and is therefore not included in the parameter count.
   mask, and token-type ids
 - Benchmark-provided modality feature: `[batch, time, input_dimension]`
 - Valid-step mask: `[batch, time]`, where `True` denotes a valid step
-- Shared/private temporal stream: `[batch, time, model_dimension]`
-- Consensus/private pooled vector: `[batch, model_dimension]`
+- Shared and pre-enhancement private stream: `[batch, time, model_dimension]`
+- Enhanced private stream: `[batch, target_time, 2 * model_dimension]`
+- Consensus pooled vector: `[batch, model_dimension]`
+- Private pooled vector: `[batch, 2 * model_dimension]`
 - Ordinal distribution: `[batch, number_of_anchors]`
 - Reliability gate: `[batch, 1]`
 - Sentiment prediction: `[batch, 1]`

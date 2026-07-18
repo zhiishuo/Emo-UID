@@ -15,8 +15,8 @@ from .modules import (
     MODALITIES,
     BertLanguageEncoder,
     ConsensusPool,
+    DMDStylePrivateTransformer,
     DiversityClassification,
-    MultimodalPrivateTransformer,
     PrototypeGramUnity,
     ReliabilityGatedResidualFusion,
     SharedPrivateFactorization,
@@ -78,28 +78,42 @@ class EmoUID(nn.Module):
             neighborhood_weight=config.prototype_neighborhood_weight,
             epsilon=config.epsilon,
         )
-        self.shared_enhancer = SharedStreamTransformer(
-            model_dim=config.model_dim,
-            num_heads=config.num_heads,
-            layers=config.shared_transformer_layers,
-            feedforward_dim=config.feedforward_dim,
-            dropout=config.dropout,
-            maximum_length=config.max_sequence_length,
+        self.shared_enhancers = nn.ModuleDict(
+            {
+                modality: SharedStreamTransformer(
+                    model_dim=config.model_dim,
+                    num_heads=config.num_heads,
+                    layers=config.shared_transformer_layers,
+                    feedforward_dim=config.feedforward_dim,
+                    dropout=config.dropout,
+                    maximum_length=config.max_sequence_length,
+                    causal_attention=config.causal_attention,
+                )
+                for modality in MODALITIES
+            }
         )
-        self.private_enhancer = MultimodalPrivateTransformer(
+        self.private_enhancer = DMDStylePrivateTransformer(
             model_dim=config.model_dim,
             num_heads=config.num_heads,
             layers=config.private_transformer_layers,
             feedforward_dim=config.feedforward_dim,
             dropout=config.dropout,
             maximum_length=config.max_sequence_length,
+            causal_attention=config.causal_attention,
         )
+        private_dim = 2 * config.model_dim
         self.consensus_pool = ConsensusPool(config.model_dim)
         self.diversity_classification = DiversityClassification(
-            config.model_dim, len(config.sentiment_anchors), config.cps_weight
+            consensus_dim=config.model_dim,
+            private_dim=private_dim,
+            num_anchors=len(config.sentiment_anchors),
+            cps_weight=config.cps_weight,
         )
         self.reliability_fusion = ReliabilityGatedResidualFusion(
-            config.model_dim, config.gate_hidden_dim, config.epsilon
+            consensus_dim=config.model_dim,
+            private_dim=private_dim,
+            gate_hidden_dim=config.gate_hidden_dim,
+            epsilon=config.epsilon,
         )
         self.regression_head = nn.Sequential(
             nn.Linear(config.model_dim, config.regression_hidden_dim),
@@ -274,7 +288,7 @@ class EmoUID(nn.Module):
             ordinal_target = pgu_output["ordinal_target"]
 
         shared_enhanced = {
-            modality: self.shared_enhancer(
+            modality: self.shared_enhancers[modality](
                 shared_pre[modality], valid_masks[modality]
             )
             for modality in MODALITIES

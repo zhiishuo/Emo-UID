@@ -30,6 +30,7 @@ class EmoUIDConfig:
     private_transformer_layers: int = 2
     feedforward_dim: int = 256
     dropout: float = 0.1
+    causal_attention: bool = True
     language_kernel_size: int = 5
     vision_kernel_size: int = 5
     acoustic_kernel_size: int = 5
