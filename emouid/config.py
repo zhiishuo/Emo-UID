@@ -17,12 +17,7 @@ class LossWeights:
 
 @dataclass(frozen=True)
 class EmoUIDConfig:
-    """Architecture configuration.
-
-    Language inputs are contextual feature sequences. The package does not
-    download or instantiate a language model, which keeps the architecture
-    independent of a specific feature-extraction pipeline.
-    """
+    """Architecture configuration for the four evaluated benchmarks."""
 
     language_input_dim: int
     vision_input_dim: int
@@ -38,6 +33,10 @@ class EmoUIDConfig:
     language_kernel_size: int = 5
     vision_kernel_size: int = 5
     acoustic_kernel_size: int = 5
+
+    use_bert: bool = False
+    bert_model_name: str = "bert-base-uncased"
+    fine_tune_bert: bool = True
 
     prototypes_per_anchor: int = 2
     gram_temperature: float = 0.07
@@ -87,6 +86,8 @@ class EmoUIDConfig:
             raise ValueError("Temperatures must be positive.")
         if not 0.0 <= self.prototype_momentum < 1.0:
             raise ValueError("prototype_momentum must be in [0, 1).")
+        if self.use_bert and not self.bert_model_name.strip():
+            raise ValueError("bert_model_name must be non-empty when use_bert is enabled.")
 
     @property
     def input_dims(self) -> Dict[str, int]:
@@ -123,6 +124,7 @@ _DATASET_PRESETS = {
         language_kernel_size=5,
         vision_kernel_size=5,
         acoustic_kernel_size=5,
+        use_bert=True,
     ),
     "mosei": dict(
         language_input_dim=768,
@@ -137,6 +139,7 @@ _DATASET_PRESETS = {
         language_kernel_size=5,
         vision_kernel_size=3,
         acoustic_kernel_size=1,
+        use_bert=True,
     ),
     "chsims": dict(
         language_input_dim=768,

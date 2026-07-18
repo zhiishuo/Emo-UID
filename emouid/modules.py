@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from contextlib import nullcontext
 from typing import Dict, Mapping, Optional, Tuple
 
 import torch
@@ -19,6 +20,63 @@ from .functional import (
 
 
 MODALITIES: Tuple[str, ...] = ("language", "vision", "acoustic")
+
+
+class BertLanguageEncoder(nn.Module):
+    """BERT sequence encoder used for CMU-MOSI and CMU-MOSEI.
+
+    The expected input follows the benchmark preprocessing convention
+    `[batch, 3, time]`: token ids, attention mask, and token-type ids. The
+    pooling head is disabled because Emo-UID consumes token-level states.
+    """
+
+    def __init__(
+        self,
+        model_name: str,
+        fine_tune: bool,
+        model: Optional[nn.Module] = None,
+    ) -> None:
+        super().__init__()
+        if model is None:
+            try:
+                from transformers import BertModel
+            except ImportError as error:
+                raise ImportError(
+                    "BERT inputs require the optional dependency; install "
+                    "Emo-UID with `pip install -e '.[bert]'`."
+                ) from error
+            model = BertModel.from_pretrained(model_name, add_pooling_layer=False)
+
+        hidden_size = getattr(getattr(model, "config", None), "hidden_size", None)
+        if hidden_size is None:
+            raise ValueError("The BERT model must expose config.hidden_size.")
+        if hasattr(model, "pooler"):
+            model.pooler = None
+        self.model = model
+        self.output_dim = int(hidden_size)
+        self.fine_tune = fine_tune
+        if not fine_tune:
+            self.model.requires_grad_(False)
+
+    def forward(self, token_bundle: Tensor) -> Tensor:
+        if token_bundle.ndim != 3 or token_bundle.shape[1] != 3:
+            raise ValueError(
+                "BERT language input must have shape [batch, 3, time]: "
+                "token ids, attention mask, and token-type ids."
+            )
+        input_ids = token_bundle[:, 0, :].long()
+        attention_mask = token_bundle[:, 1, :]
+        token_type_ids = token_bundle[:, 2, :].long()
+        context = nullcontext() if self.fine_tune else torch.no_grad()
+        with context:
+            output = self.model(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                token_type_ids=token_type_ids,
+            )
+        if hasattr(output, "last_hidden_state"):
+            return output.last_hidden_state
+        return output[0]
 
 
 class TemporalProjector(nn.Module):
@@ -96,8 +154,8 @@ class SharedPrivateFactorization(nn.Module):
     ) -> Tensor:
         weights = valid_mask.unsqueeze(-1).to(target.dtype)
         squared_error = (reconstruction - target).square() * weights
-        denominator = (weights.sum(dim=(1, 2)) * target.shape[-1]).clamp_min(1.0)
-        return (squared_error.sum(dim=(1, 2)) / denominator).mean()
+        # Eq. (4): squared Frobenius norm per sample, averaged over the batch.
+        return squared_error.sum(dim=(1, 2)).mean()
 
     def forward(
         self,

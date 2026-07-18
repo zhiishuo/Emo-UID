@@ -6,7 +6,7 @@ method variant.
 
 | Manuscript | Implementation | Role |
 |---|---|---|
-| Eq. (2) | `TemporalProjector` | Modality-specific temporal front-ends |
+| Eq. (2) | `BertLanguageEncoder`, `TemporalProjector` | Dataset-specific language encoding and modality front-ends |
 | Eqs. (3)-(4) | `SharedPrivateFactorization` | Shared/private decomposition, orthogonality, and reconstruction |
 | Eqs. (5)-(7) | `PrototypeGramUnity._gram_volume_logits` | Symmetric tri-modal Gram-volume contrastive learning |
 | Eqs. (8)-(11) | `soft_ordinal_target`, `PrototypeGramUnity` | Soft ordinal prototype anchoring and EMA updates |
@@ -33,6 +33,8 @@ method variant.
 
 - **No knowledge distillation.** The architecture contains no teacher network,
   teacher logits, distillation objective, or teacher-student execution path.
+- **No inactive BERT pooling head.** The English language path consumes
+  token-level hidden states, so BERT is instantiated without its unused pooler.
 - **No unimodal-label claim.** The three private heads are auxiliary ordinal
   evidence estimators supervised by the sample-level target. Their outputs are
   not official unimodal sentiment predictions.
@@ -49,9 +51,23 @@ method variant.
 - **Prototype updates are controlled.** The prototype bank is updated by EMA
   only in training mode and only when labels are available.
 
+## Parameter accounting
+
+`EmoUID.parameter_report()` reports total/trainable parameters and separates the
+language encoder from the Emo-UID core. The report follows the instantiated
+forward graph; legacy KD modules and historical experiment heads are neither
+registered nor counted.
+
+For the CMU-MOSI preset, BERT-base-uncased without its unused pooling head has
+108,891,648 parameters and the complete Emo-UID core has 523,406 parameters,
+giving 109,415,054 active trainable parameters in total. The EMA prototype bank
+is a non-trainable buffer and is therefore not included in the parameter count.
+
 ## Tensor conventions
 
-- Modality input: `[batch, time, input_dimension]`
+- English language input: `[batch, 3, time]` containing token ids, attention
+  mask, and token-type ids
+- Benchmark-provided modality feature: `[batch, time, input_dimension]`
 - Valid-step mask: `[batch, time]`, where `True` denotes a valid step
 - Shared/private temporal stream: `[batch, time, model_dimension]`
 - Consensus/private pooled vector: `[batch, model_dimension]`

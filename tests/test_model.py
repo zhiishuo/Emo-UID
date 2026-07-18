@@ -1,9 +1,12 @@
 from dataclasses import replace
+from types import SimpleNamespace
 
 import pytest
 import torch
+import torch.nn as nn
 
 from emouid import EmoUID, EmoUIDConfig, dataset_config
+from emouid.modules import SharedPrivateFactorization
 
 
 @pytest.fixture
@@ -34,6 +37,26 @@ def make_batch() -> dict[str, torch.Tensor]:
         "acoustic": torch.randn(4, 6, 4),
         "labels": torch.tensor([-0.9, -0.2, 0.3, 0.8]),
     }
+
+
+class TinyBert(nn.Module):
+    def __init__(self, hidden_size: int) -> None:
+        super().__init__()
+        self.config = SimpleNamespace(hidden_size=hidden_size)
+        self.embedding = nn.Embedding(32, hidden_size)
+        self.projection = nn.Linear(hidden_size, hidden_size)
+        self.pooler = nn.Linear(hidden_size, hidden_size)
+
+    def forward(
+        self,
+        input_ids: torch.Tensor,
+        attention_mask: torch.Tensor,
+        token_type_ids: torch.Tensor,
+    ) -> SimpleNamespace:
+        del token_type_ids
+        hidden = self.projection(self.embedding(input_ids))
+        hidden = hidden * attention_mask.unsqueeze(-1).to(hidden.dtype)
+        return SimpleNamespace(last_hidden_state=hidden)
 
 
 def test_forward_matches_architecture_contract(config: EmoUIDConfig) -> None:
@@ -86,6 +109,25 @@ def test_complete_objective_backpropagates_to_core_paths(config: EmoUIDConfig) -
     for name, parameter in checked_parameters.items():
         assert parameter.grad is not None, f"No gradient reached {name}."
         assert torch.isfinite(parameter.grad).all(), f"Invalid gradient in {name}."
+
+    disconnected = [
+        name
+        for name, parameter in model.named_parameters()
+        if parameter.requires_grad and parameter.grad is None
+    ]
+    assert disconnected == [], f"Trainable parameters outside the loss graph: {disconnected}"
+
+
+def test_reconstruction_uses_squared_frobenius_sum() -> None:
+    factorization = SharedPrivateFactorization(model_dim=2, dropout=0.0, epsilon=1e-8)
+    target = torch.ones(2, 2, 2)
+    reconstruction = torch.zeros_like(target)
+    valid_mask = torch.tensor([[1, 0], [1, 1]], dtype=torch.bool)
+
+    loss = factorization._reconstruction_loss(reconstruction, target, valid_mask)
+
+    # Per-sample squared Frobenius sums are 2 and 4; the batch mean is 3.
+    assert torch.allclose(loss, torch.tensor(3.0))
 
 
 def test_grouped_objective_matches_equation_25(config: EmoUIDConfig) -> None:
@@ -189,13 +231,54 @@ def test_masks_exclude_padding(config: EmoUIDConfig) -> None:
 
 
 def test_dataset_presets_cover_revised_benchmarks() -> None:
-    assert dataset_config("CMU-MOSI").input_dims == {
+    mosi = dataset_config("CMU-MOSI")
+    assert mosi.input_dims == {
         "language": 768,
         "vision": 20,
         "acoustic": 5,
     }
-    assert dataset_config("CH-SIMS v2.0").input_dims == {
+    assert mosi.use_bert is True
+    chsimsv2 = dataset_config("CH-SIMS v2.0")
+    assert chsimsv2.input_dims == {
         "language": 768,
         "vision": 177,
         "acoustic": 25,
     }
+    assert chsimsv2.use_bert is False
+
+
+def test_mosi_core_parameter_count_is_explicit() -> None:
+    model = EmoUID(dataset_config("CMU-MOSI", use_bert=False))
+    report = model.parameter_report()
+
+    assert report["language_encoder"] == 0
+    assert report["emouid_core"] == 523_406
+    assert report["total"] == 523_406
+
+
+def test_bert_path_is_trainable_and_included_in_parameter_report(
+    config: EmoUIDConfig,
+) -> None:
+    bert = TinyBert(hidden_size=config.language_input_dim)
+    model = EmoUID(replace(config, use_bert=True), bert_model=bert)
+    batch = make_batch()
+    attention_mask = torch.tensor([[1, 1, 1, 1, 0, 0, 0]] * 4)
+    batch["language"] = torch.stack(
+        [
+            torch.randint(0, 32, (4, 7)),
+            attention_mask,
+            torch.zeros(4, 7, dtype=torch.long),
+        ],
+        dim=1,
+    )
+
+    output = model(**batch)
+    output["losses"]["total"].backward()
+    report = model.parameter_report()
+    expected_language = sum(parameter.numel() for parameter in bert.parameters())
+
+    assert output["prediction"].shape == (4, 1)
+    assert bert.pooler is None
+    assert report["language_encoder"] == expected_language
+    assert report["total"] == report["language_encoder"] + report["emouid_core"]
+    assert all(parameter.grad is not None for parameter in bert.parameters())

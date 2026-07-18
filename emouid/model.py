@@ -13,6 +13,7 @@ from .config import EmoUIDConfig
 from .functional import masked_mean
 from .modules import (
     MODALITIES,
+    BertLanguageEncoder,
     ConsensusPool,
     DiversityClassification,
     MultimodalPrivateTransformer,
@@ -27,14 +28,33 @@ from .modules import (
 class EmoUID(nn.Module):
     """Reliability-controlled unity-in-diversity sentiment model.
 
-    The forward path follows Sec. III of the revised manuscript. Inputs are
-    modality feature sequences; language-model feature extraction and dataset
-    preprocessing remain outside this architecture package.
+    The forward path follows Sec. III of the revised manuscript. For CMU-MOSI
+    and CMU-MOSEI, the language path includes the jointly fine-tuned BERT
+    encoder from Eq. (2). Chinese benchmarks use their provided features.
     """
 
-    def __init__(self, config: EmoUIDConfig) -> None:
+    def __init__(
+        self,
+        config: EmoUIDConfig,
+        bert_model: Optional[nn.Module] = None,
+    ) -> None:
         super().__init__()
         self.config = config
+        if config.use_bert:
+            self.language_encoder: Optional[BertLanguageEncoder] = BertLanguageEncoder(
+                model_name=config.bert_model_name,
+                fine_tune=config.fine_tune_bert,
+                model=bert_model,
+            )
+            if self.language_encoder.output_dim != config.language_input_dim:
+                raise ValueError(
+                    "BERT hidden size must equal language_input_dim: "
+                    f"{self.language_encoder.output_dim} != {config.language_input_dim}."
+                )
+        else:
+            if bert_model is not None:
+                raise ValueError("bert_model was provided while use_bert is disabled.")
+            self.language_encoder = None
         self.frontends = nn.ModuleDict(
             {
                 modality: TemporalProjector(
@@ -87,6 +107,61 @@ class EmoUID(nn.Module):
             nn.Dropout(config.dropout),
             nn.Linear(config.regression_hidden_dim, 1),
         )
+
+    def parameter_report(self) -> Dict[str, int]:
+        """Return active language/core parameter counts without double counting."""
+
+        total = sum(parameter.numel() for parameter in self.parameters())
+        trainable = sum(
+            parameter.numel() for parameter in self.parameters() if parameter.requires_grad
+        )
+        language = 0
+        language_trainable = 0
+        if self.language_encoder is not None:
+            language = sum(
+                parameter.numel() for parameter in self.language_encoder.parameters()
+            )
+            language_trainable = sum(
+                parameter.numel()
+                for parameter in self.language_encoder.parameters()
+                if parameter.requires_grad
+            )
+        return {
+            "total": total,
+            "trainable": trainable,
+            "language_encoder": language,
+            "language_encoder_trainable": language_trainable,
+            "emouid_core": total - language,
+            "emouid_core_trainable": trainable - language_trainable,
+        }
+
+    def _encode_language(
+        self,
+        language: Tensor,
+        masks: Optional[Mapping[str, Tensor]],
+    ) -> tuple[Tensor, Optional[Mapping[str, Tensor]]]:
+        if self.language_encoder is None:
+            return language, masks
+
+        if language.ndim != 3 or language.shape[1] != 3:
+            raise ValueError(
+                "BERT language input must have shape [batch, 3, time]: "
+                "token ids, attention mask, and token-type ids."
+            )
+        attention_mask = language[:, 1, :].to(dtype=torch.bool)
+        prepared_masks = dict(masks or {})
+        if "language" in prepared_masks:
+            supplied_mask = prepared_masks["language"].to(
+                device=attention_mask.device, dtype=torch.bool
+            )
+            if supplied_mask.shape != attention_mask.shape or not torch.equal(
+                supplied_mask, attention_mask
+            ):
+                raise ValueError(
+                    "The explicit language mask must match the BERT attention mask."
+                )
+        prepared_masks["language"] = attention_mask
+        return self.language_encoder(language), prepared_masks
 
     def _prepare_inputs(
         self,
@@ -148,7 +223,8 @@ class EmoUID(nn.Module):
         """Run sentiment inference and, when labels are given, compute Eq. (25).
 
         Args:
-            language: Language feature sequence `[B, T_L, d_L]`.
+            language: BERT token bundle `[B, 3, T_L]` when `use_bert=True`,
+                otherwise a language feature sequence `[B, T_L, d_L]`.
             vision: Visual feature sequence `[B, T_V, d_V]`.
             acoustic: Acoustic feature sequence `[B, T_A, d_A]`.
             labels: Optional continuous sentiment labels `[B]` or `[B, 1]`.
@@ -156,8 +232,14 @@ class EmoUID(nn.Module):
             update_prototypes: Allow EMA prototype updates during training.
         """
 
+        language_features, masks = self._encode_language(language, masks)
         inputs, valid_masks = self._prepare_inputs(
-            {"language": language, "vision": vision, "acoustic": acoustic}, masks
+            {
+                "language": language_features,
+                "vision": vision,
+                "acoustic": acoustic,
+            },
+            masks,
         )
         projected = {
             modality: self.frontends[modality](inputs[modality], valid_masks[modality])
@@ -179,9 +261,10 @@ class EmoUID(nn.Module):
         normalized_labels: Optional[Tensor] = None
         if labels is not None:
             normalized_labels = labels.reshape(-1).to(
-                device=language.device, dtype=language.dtype
+                device=projected["language"].device,
+                dtype=projected["language"].dtype,
             )
-            if normalized_labels.shape[0] != language.shape[0]:
+            if normalized_labels.shape[0] != inputs["language"].shape[0]:
                 raise ValueError("labels must contain one value per sample.")
             pgu_output = self.pgu(
                 pooled_shared_pre,
