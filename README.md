@@ -39,42 +39,6 @@ python -m pip install -e '.[dev]'
 pytest -q
 ```
 
-## Minimal forward pass
-
-Emo-UID accepts temporal feature sequences with shape `[batch, time, feature]`.
-For CMU-MOSI and CMU-MOSEI, `language` denotes contextual BERT features. For
-CH-SIMS and CH-SIMS v2.0, all three inputs denote the benchmark-provided
-features.
-
-```python
-import torch
-
-from emouid import EmoUID, dataset_config
-
-config = dataset_config("mosi")
-model = EmoUID(config)
-
-batch = 2
-output = model(
-    language=torch.randn(batch, 12, 768),
-    vision=torch.randn(batch, 12, 20),
-    acoustic=torch.randn(batch, 12, 5),
-    labels=torch.tensor([-0.8, 1.2]),
-)
-
-loss = output["losses"]["total"]
-loss.backward()
-
-print(output["prediction"].shape)  # [2, 1]
-print({name: gate.shape for name, gate in output["gates"].items()})
-```
-
-Run the complete CPU example with:
-
-```bash
-python -m examples.forward_pass
-```
-
 ## Dataset feature presets
 
 `dataset_config` supplies the feature dimensions stated in the revised paper:
