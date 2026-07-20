@@ -13,13 +13,7 @@ authors = [{name = "Emo-UID Authors"}]
 dependencies = ["torch>=2.1"]
 
 [project.optional-dependencies]
-dev = ["pytest>=7"]
 bert = ["transformers>=4.40,<5"]
 
 [tool.setuptools.packages.find]
 include = ["emouid*"]
-
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-pythonpath = ["."]
-addopts = "-ra"

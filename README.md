@@ -40,13 +40,6 @@ are not part of Emo-UID.
 python -m pip install -e .
 ```
 
-For development and tests:
-
-```bash
-python -m pip install -e '.[dev]'
-pytest -q
-```
-
 The English benchmarks instantiate BERT-base-uncased inside the model and
 therefore require the optional language-model dependency:
 
