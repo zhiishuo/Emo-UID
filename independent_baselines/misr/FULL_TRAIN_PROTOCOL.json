@@ -1,0 +1,125 @@
+{
+  "schema_version": 1,
+  "method": "MISR",
+  "date": "2026-10-26",
+  "status": "paper_grounded_independent_implementation_not_verified_reproduction",
+  "scope": "MISR model audit and protocol extraction only; parent owns trainer",
+  "source": {
+    "path": "LOCAL_PATH_OMITTED",
+    "sha256": "1d89f08fdda31e3c018611ed01b62dc92f2f64f4014ac6a774b71a75074d471d",
+    "method_pages": [14745, 14746, 14747],
+    "training_page": 14748,
+    "appendix_tables_page": 14754,
+    "environment_ablation_page": 14755,
+    "official_code_inspected": false
+  },
+  "paper_reported_shared": {
+    "sources": ["Section 4.2", "Appendix B Table 6"],
+    "optimizer": "Adam",
+    "batch_size": 32,
+    "epochs": 100,
+    "bert_learning_rate": 0.000005,
+    "other_learning_rate": 0.0001,
+    "sequence_length_T": 50,
+    "fully_connected_width": 128,
+    "lambda_sp": 1.0,
+    "lambda_dc": 0.4,
+    "lambda_ic": 1.0,
+    "random_seed_text": "fixed random seed (1111)",
+    "reported_experiments_averaged": 3,
+    "per_run_seed_list": null,
+    "framework": "PyTorch",
+    "hardware_text": "NVIDIA RTX A40",
+    "text_extractor": "BERT",
+    "audio_extractor_text": "librosa",
+    "visual_extractor_text": "OpenFace",
+    "sentiment_objective": "L1 regression",
+    "label_range": [-3, 3]
+  },
+  "paper_reported_datasets": {
+    "MOSI": {
+      "sources": ["Appendix A Table 5", "Appendix B Table 6"],
+      "language_dims_reported": [768, 1024],
+      "audio_dim": 5,
+      "vision_dim": 20,
+      "train_count": 1284,
+      "validation_count": 229,
+      "test_count": 686,
+      "total_count": 2199
+    },
+    "MOSEI": {
+      "sources": ["Appendix A Table 5", "Appendix B Table 6"],
+      "language_dims_reported": [768, 1024],
+      "audio_dim": 74,
+      "vision_dim": 35,
+      "train_count": 16326,
+      "validation_count": 1871,
+      "test_count": 4659,
+      "total_count": 22856
+    }
+  },
+  "bert": {
+    "main_table_backbone": null,
+    "checkpoint_id_revision_tokenizer_casing": null,
+    "evidence": "Table 6 lists 768 and 1024; Appendix C/Table 7 discusses BERT-base and BERT-large without identifying the Table 1 backbone.",
+    "fine_tuning": "Separate BERT learning rate supports trainable BERT; exact trainable layer policy is not specified.",
+    "implementation_default": "External contextual BERT-base-compatible [B,T,768] input; no BERT is bundled.",
+    "large_variant": "Set language_dim=1024 and supply corresponding contextual output.",
+    "parent_requirements": [
+      "Declare checkpoint ID, revision, tokenizer and casing before training",
+      "Preserve autograd into BERT, optimizer membership and separate 5e-6 learning rate",
+      "Verify special-token, subword and acoustic/visual semantic alignment, not only equal T",
+      "Declare CLS/SEP/pad masks, truncation and pooling rules",
+      "Do not call frozen precomputed features or an unverified main-table backbone exact reproduction"
+    ]
+  },
+  "implemented_loss_reductions": {
+    "gaussian": "isotropic standard deviation [B,T,1], mean [B,T,128]",
+    "normalized_alignment": "sum latent coordinates; mean valid tokens per utterance; mean batch; sum 3 modalities",
+    "cross_modal_alignment": "same coordinate/token/batch reduction; sum all 6 ordered distinct modality pairs on valid intersections",
+    "reconstruction": "squared Euclidean norm summed over latent coordinates; mean valid tokens per utterance; mean batch; sum 3 modalities; target not detached",
+    "distribution_constraint": "NA+CMA+DR, no additional normalization",
+    "sentiment_prediction": "batch mean L1 on u-only environment",
+    "invariant_constraint": "population variance of 8 environment batch-mean L1 risks",
+    "decision": "Retain current reductions and lambda_dc=0.4. No source-backed enormous-scale reduction was identified.",
+    "source_limit": "KL coordinate sum and squared norm follow equations. Token/batch reductions and DR modality aggregation are independent implementation choices, not recovered official code."
+  },
+  "unresolved_choices": [
+    "Main-table BERT-base versus BERT-large and exact checkpoint/tokenizer",
+    "Which BERT layers are trained; text-layer output selection",
+    "Original feature files, preprocessing, normalization, split IDs and semantic alignment",
+    "Transformer heads, feed-forward width, dropout, positional encoding and pre/post-norm",
+    "Gaussian token versus utterance granularity and scalar versus diagonal interpretation",
+    "Batch/token reductions and reconstruction modality aggregation",
+    "Environment fusion function, Phi architecture and LayerNorm placement",
+    "Whether SP trains u only or aggregates environments; Eq.11 printed summation ambiguity",
+    "Seed policy for three experiments despite stated fixed seed 1111",
+    "Adam betas/epsilon, weight decay, scheduler, clipping, warmup, precision",
+    "Checkpoint selection, early stopping, validation frequency, shuffle and drop_last",
+    "F1 averaging, Acc-7 rounding/clipping/tie policy and exact evaluator"
+  ],
+  "parent_training_contract": {
+    "api_changed": false,
+    "mosi_config": {"language_dim": 768, "audio_dim": 5, "vision_dim": 20},
+    "mosei_config": {"language_dim": 768, "audio_dim": 74, "vision_dim": 35},
+    "config_note": "768 is the existing independent default, not a verified main-table choice; 1024 must be explicit for large.",
+    "mask_key_mapping": "acoustic -> audio",
+    "selection_proposal_not_paper_fact": "Declare validation-only checkpoint selection before training; do not tune unresolved choices on held-out test.",
+    "required_logs": ["raw SP/NA/CMA/DR/IC", "weighted contributions", "component gradient norms", "posterior standard deviation range", "fusion weight saturation", "nonfinite checks", "BERT gradient and parameter update", "split hashes and resolved protocol"],
+    "prohibited_silent_changes": ["Divide DC by hidden width", "Average the six KL pairs instead of summing", "Reduce lambda_dc", "Replace squared norm by per-coordinate MSE", "Detach reconstruction target", "Freeze BERT without protocol relabeling"],
+    "failure_policy": "Retain failed and partial runs; any objective modification is a separately declared variant, not paper reproduction."
+  },
+  "synthetic_scale_check": {
+    "kind": "CPU random-input initialization diagnostic, not benchmark or training result",
+    "seed": 1111,
+    "config": "MISRConfig defaults; eval; sample=False; batch=2; T=50",
+    "normalized_alignment": 216.0111083984375,
+    "cross_modal_alignment": 2626.32177734375,
+    "data_reconstruction": 542.5582275390625,
+    "distribution_constraint": 3384.89111328125,
+    "sentiment_prediction": 0.49439436197280884,
+    "invariant_constraint": 0.000008121160135488026,
+    "total": 1354.4508056640625
+  },
+  "verification": {"synthetic_cpu_tests_passed": 15, "gpu_launched": false, "benchmark_results": null, "rebuttal_modified": false}
+}

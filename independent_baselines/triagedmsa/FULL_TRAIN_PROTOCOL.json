@@ -1,0 +1,64 @@
+{
+  "method": "TriagedMSA",
+  "status": "source_extracted_not_executed",
+  "source": {
+    "doi": "10.1109/TAFFC.2024.3524789",
+    "pdf": "LOCAL_PATH_OMITTED",
+    "sha256": "d5d6282460d6b705a3d21bb336ee6c19afa1cf8dd8870e2d01c24b5894ba787b",
+    "hyperparameters": "Table I and Section IV.A, printed page 1564 / PDF page 8",
+    "metrics": "Section IV.D, printed page 1565 / PDF page 9",
+    "table_visual_evidence": "evidence/protocol-page-08.png"
+  },
+  "datasets": {
+    "MOSI": {"learning_rate": 0.0001, "batch_size": 128, "hidden": 256, "heads": 2, "dropout": 0.5, "epochs": 50, "early_stop_printed": 20},
+    "MOSEI": {"learning_rate": 0.0001, "batch_size": 128, "hidden": 256, "heads": 4, "dropout": 0.7, "epochs": 50, "early_stop_printed": 20}
+  },
+  "paper_search": {
+    "split": "provided validation sets",
+    "method": "grid search",
+    "learning_rate": [0.00001, 0.00005, 0.0001, 0.0005],
+    "heads": [1, 2, 4, 8],
+    "dropout": [0.1, 0.2, 0.5],
+    "hidden": [512, 256, 128],
+    "discrepancy": "MOSEI final dropout 0.7 is outside the prose search grid; retain Table I final setting"
+  },
+  "original_unreported": {
+    "optimizer": null,
+    "optimizer_betas": null,
+    "weight_decay": null,
+    "scheduler": null,
+    "gradient_clip": null,
+    "checkpoint_selection_metric": null,
+    "early_stop_exact_semantics": null,
+    "seed_values": null,
+    "number_of_seeds": null,
+    "bert_checkpoint": null,
+    "bert_freeze_or_finetune": null,
+    "bert_learning_rate": null,
+    "max_sequence_length": null,
+    "feature_normalization": null,
+    "alignment_preprocessing_details": null,
+    "f1_averaging": null,
+    "binary_zero_handling": null
+  },
+  "independent_runner_recommendation_not_original": {
+    "optimizer": "Adam",
+    "optimizer_betas": [0.9, 0.999],
+    "optimizer_eps": 1e-8,
+    "weight_decay": 0.0,
+    "scheduler": null,
+    "selection_metric": "validation sentiment MAE",
+    "selection_direction": "minimize",
+    "tie_break": "earliest epoch",
+    "early_stop": "20 consecutive validation evaluations without strict improvement",
+    "original_protocol_epoch_cap": 50,
+    "requested_extended_protocol_epoch_cap": 100,
+    "extended_protocol_label": "independent 100-epoch extension, not Table I reproduction",
+    "search_policy": "validation only; freeze selected configuration before five evaluation seeds; never select on test",
+    "five_seed_values": null,
+    "bert_policy": "explicitly record parent choice; frozen features are not verified equivalent to original BERT training",
+    "apd_timing": "full frozen train snapshot after each epoch, new references, second full frozen train pass, Eq21 for next epoch",
+    "loss": "positive sentiment MAE + positive triage MAE + consistency, unit weights"
+  },
+  "execution": {"gpu_launch_authorized_by_this_artifact": false, "runs": 0, "numerical_results": null}
+}
