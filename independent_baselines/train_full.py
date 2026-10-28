@@ -47,13 +47,25 @@ def metrics(pred, target):
 
 class Split:
     def __init__(self, raw, name):
+        self.name = name
         self.ids, self.id_kind = sample_ids(raw, name)
-        self.tokens = np.asarray(raw['text_bert'], dtype=np.int64)
+        tokens = np.asarray(raw['text_bert'])
+        if (tokens.ndim != 3 or tokens.shape[1] != 3 or min(tokens.shape) < 1
+                or not np.issubdtype(tokens.dtype, np.integer)):
+            raise ValueError('text_bert must be nonempty integer [N,3,T]')
+        if not np.isin(tokens[:,1], [0,1]).all():
+            raise ValueError('Attention mask must contain only 0/1')
+        self.tokens = tokens.astype(np.int64)
         self.audio = np.asarray(raw['audio'], dtype=np.float32)
         self.vision = np.asarray(raw['vision'], dtype=np.float32)
-        self.labels = np.asarray(raw['regression_labels'], dtype=np.float32).reshape(-1)
+        labels = np.asarray(raw['regression_labels'], dtype=np.float32)
+        n = len(tokens)
+        if labels.shape not in ((n,), (n,1)) or not np.isfinite(labels).all():
+            raise ValueError('Labels must be finite [N] or [N,1] matching features')
+        self.labels = labels.reshape(-1)
         mask = self.tokens[:,1].astype(bool)
-        if self.audio.shape[:2] != mask.shape or self.vision.shape[:2] != mask.shape:
+        if any(x.ndim != 3 or x.shape[:2] != mask.shape or x.shape[-1] < 1
+               for x in (self.audio, self.vision)):
             raise ValueError('Expected benchmark-aligned features; no implicit resampling')
         if not mask.any(1).all() or ((~mask[:,:-1]) & mask[:,1:]).any():
             raise ValueError('Invalid text mask')
@@ -72,7 +84,11 @@ class Baseline(nn.Module):
     def __init__(self, config, split):
         super().__init__()
         self.name = config['model']
+        if self.name not in ('misr', 'triagedmsa'):
+            raise ValueError('model must be misr or triagedmsa')
         self.bert = AutoModel.from_pretrained(config['bert'], local_files_only=True)
+        if self.bert.config.hidden_size != config.get('model_kwargs', {}).get('language_dim', 768):
+            raise ValueError('BERT hidden_size must match model_kwargs.language_dim (default 768)')
         kwargs = dict(audio_dim=split.audio.shape[-1], vision_dim=split.vision.shape[-1])
         if self.name == 'misr':
             self.core = MISR(MISRConfig(**kwargs, **config.get('model_kwargs', {})))
@@ -108,6 +124,8 @@ def evaluate(model, split, batch_size, device):
 @torch.no_grad()
 def refresh_targets(model, split, targets, next_epoch, batch_size, device):
     # Reference and target snapshots use a fixed model and TRAIN examples only.
+    if split.name != 'train':
+        raise ValueError('APD refresh requires the train split')
     from triagedmsa.lifecycle import APDCache, refresh_apd_cache
     model.eval()
     def batches():
@@ -160,14 +178,35 @@ def optimization_loss(losses, config, epoch):
     return result
 
 
+def check_split_ids(*splits):
+    for i, split in enumerate(splits):
+        for other in splits[:i]:
+            if set(split.ids) & set(other.ids):
+                raise ValueError(f'{split.name}/{other.name} ID overlap')
+
+
+def check_resume_state(saved, train, config):
+    if saved['train_ids'] != train.ids:
+        raise ValueError('Resume train IDs/order changed')
+    if config['model'] == 'triagedmsa':
+        from triagedmsa.lifecycle import APDCache
+        cache = APDCache(tuple(saved['train_ids']), saved['targets'].cpu(), saved['targets_epoch'])
+        cache.validate()
+        if cache.epoch != saved['epoch'] + 1:
+            raise ValueError('No next-epoch APD cache; cannot resume a stopped run')
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', type=Path, required=True)
     parser.add_argument('--run-dir', type=Path, required=True)
-    parser.add_argument('--evaluate-only', action='store_true')
-    parser.add_argument('--resume', action='store_true')
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument('--evaluate-only', action='store_true')
+    mode.add_argument('--resume', action='store_true')
     args = parser.parse_args()
     config = json.loads(args.config.read_text())
+    if config.get('_example_only', False):
+        raise ValueError('Example only: replace placeholders, review choices, then remove _example_only')
     run = args.run_dir
     if not args.evaluate_only and not args.resume:
         run.mkdir(parents=True, exist_ok=False)
@@ -188,8 +227,7 @@ def main():
     train, valid = Split(payload['train'],'train'), Split(payload['valid'],'valid')
     test = Split(payload['test'],'test') if args.evaluate_only else None
     del payload
-    if set(train.ids) & set(valid.ids):
-        raise ValueError('Train/validation ID overlap')
+    check_split_ids(train, valid, *([test] if test is not None else []))
     model = Baseline(config,train).to(device)
     receipt = {'status':'training','model':config['model'],'dataset':config['dataset'],
                'seed':seed,'data_sha256':data_hash,'source_sha256':source_hashes(),
@@ -218,6 +256,7 @@ def main():
         saved = torch.load(run/'latest.pt',map_location=device,weights_only=False)
         if saved['receipt']['source_sha256'] != receipt['source_sha256']:
             raise ValueError('Refusing resume with changed source')
+        check_resume_state(saved, train, config)
         model.load_state_dict(saved['model']); optimizer.load_state_dict(saved['optimizer'])
         start_epoch, best, best_epoch, stale = saved['epoch']+1,saved['best'],saved['best_epoch'],saved['stale']
         targets = saved['targets'].cpu()

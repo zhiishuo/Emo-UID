@@ -1,5 +1,9 @@
 # Full Training Protocol: TriagedMSA
 
+> Historical source/protocol audit, not a final runnable configuration or current
+> run-status report. See `../README.md` for failed validation diagnostics and
+> `../configs/` for explicitly illustrative public configurations.
+
 Source: Luo et al., DOI 10.1109/TAFFC.2024.3524789. Table I and IV.A,
 printed p.1564 (PDF p.8), visually verified in `evidence/protocol-page-08.png`.
 The JSON companion separates source facts, unreported settings and runner choices.
@@ -93,6 +97,6 @@ not the unresolved SSA dimension/weight-sharing, pooling, SDT flattening or BERT
 provenance ambiguities. Its one-epoch-lag timing is an independent interpretation,
 not evidence of the original implementation's exact update schedule.
 
-CPU-only verification: run `python3 -B -m unittest discover -s
-experiments/emouid_independent_baselines_20261026/triagedmsa -p 'test_*.py' -v`
-from the repository root. These tests establish engineering behavior only.
+CPU-only verification from `independent_baselines/`:
+`python3 -B -m unittest discover -s triagedmsa -p 'test_*.py' -v`.
+These tests establish engineering behavior only.

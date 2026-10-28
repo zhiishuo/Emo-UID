@@ -1,5 +1,9 @@
 # MISR Full-Training Protocol Audit
 
+> Historical source/protocol audit, not a final runnable configuration or current
+> run-status report. See `../README.md` for the terminal unsuccessful reproduction
+> outcome and `../configs/` for explicitly illustrative public configurations.
+
 ## Status and provenance
 
 This is an independent paper-grounded implementation, not verified official-code

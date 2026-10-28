@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+.venv*/
+zzs-venv*/
+data/
+models/
+runs/
+*.pt
+*.pth
+*.pkl
+*.pkl.gz
+configs/*.local.json

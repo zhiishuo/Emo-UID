@@ -1,5 +1,12 @@
 # MISR Independent Implementation: Method Map
 
+> Publication note (2026-10-28): the audit narrative below is historical.
+> The equation/API map still describes the bundled core. The package now includes
+> a BERT wrapper and training runner in `../train_full.py`; the old statements
+> about missing integration are not current package status. See `../README.md`
+> for terminal outcomes and clearly marked example configurations. No successful
+> reproduction is claimed, and this core is not the full later diagnostic lineage.
+
 ## Scope and evidence boundary
 
 This is a paper-grounded independent implementation, NOT an official-code
@@ -42,7 +49,7 @@ earlier audit's official-resource boundary.
 ## Interface and supervision
 
 ```python
-from model import MISR, MISRConfig
+from misr.model import MISR, MISRConfig
 model = MISR(MISRConfig()).cpu()
 output = model(language, audio, vision, masks=masks, labels=labels)
 output['losses']['total'].backward()
@@ -69,11 +76,10 @@ output['losses']['total'].backward()
 - Without labels only distribution losses are computed; there is no synthetic
   task loss, IC, or total. Eval defaults to deterministic mu reconstruction.
 
-The existing read-only loader in
-`experiments/emouid_fig7_fullbatch_a100_20261021/train_emouid.py`
-uses `acoustic` as the audio batch/mask key. Parent must explicitly map it to
-`audio`; no shared runner was edited. With `use_bert=True`, loader text is BERT
-token input, NOT contextual embeddings, so a parent-owned BERT wrapper is needed.
+The historical external loader used `acoustic` as the audio batch/mask key.
+The public `../train_full.py` wrapper instead reads `audio`, maps masks to the
+core names, and converts `text_bert` tokens into contextual BERT embeddings.
+It does not depend on that external loader.
 
 ## BERT and training-protocol boundary
 
@@ -98,10 +104,10 @@ public API. No other architecture change was justified by the inspected source.
 
 ## Tests and bounded pilot decision
 
-From repository root, using existing Python 3.11 / torch 2.10.0:
+From `independent_baselines/`, using Python 3.11 / torch 2.10.0:
 
 ```sh
-python3 -B -m unittest discover -s experiments/emouid_independent_baselines_20261026/misr -p test_model.py -v
+python3 -B -m unittest discover -s misr -p test_model.py -v
 ```
 
 All tests are synthetic CPU engineering checks. They cover complete/default T50

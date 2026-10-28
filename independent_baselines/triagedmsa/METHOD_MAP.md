@@ -1,5 +1,13 @@
 # TriagedMSA independent implementation
 
+> Publication note (2026-10-28): execution statements below describe the initial
+> core audit, not the terminal outcome. The equation/API map still matches the
+> bundled core; `lifecycle.py` and `../train_full.py` now provide the APD lifecycle
+> and BERT training integration described as parent work below. The current core
+> plus lifecycle suite has 17 tests (the initial core-only suite had nine).
+> See `../README.md`: validation diagnostics failed to recover effective learning;
+> no formal five-seed test comparison or successful reproduction is claimed.
+
 ## Status and evidence boundary
 
 Executable paper-grounded independent implementation, NOT official code and NOT
@@ -103,13 +111,13 @@ labels is not part of this implementation or an acceptable MOSI/MOSEI shortcut.
 
 ## Exact verification
 
-From `LOCAL_PATH_OMITTED`:
+From `independent_baselines/`:
 
 ```sh
-python3 -B -m unittest discover -s experiments/emouid_independent_baselines_20261026/triagedmsa -p test_model.py -v
+python3 -B -m unittest discover -s triagedmsa -p 'test_*.py' -v
 ```
 
-Observed: 9 tests, OK, 0.253 seconds on CPU. The installed torch import emits an
+Historical core-only observation: 9 tests, OK, 0.253 seconds on CPU. The installed torch import emits an
 existing pynvml deprecation warning; no environment changes were made.
 
 Tests cover forced SSA/SCA backward with finite nonzero gradients in selected

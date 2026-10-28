@@ -1,0 +1,6 @@
+# Versions used for publication CPU contract checks, not the original GPU run lock.
+# Install a platform/CUDA-compatible torch build first if needed.
+torch==2.10.0
+numpy==2.3.5
+scikit-learn==1.8.0
+transformers==4.57.3
