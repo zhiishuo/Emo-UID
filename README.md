@@ -88,6 +88,15 @@ consistency.
 
 ## Scope
 
+## Discrepancy evaluation resources
+
+The [discrepancy evaluation directory](discrepancy_evaluation/) provides
+construction/evaluation tooling and author-supplied binned result CSVs for
+CH-SIMS, CH-SIMS v2.0, CMU-MOSI and CMU-MOSEI. See
+[data notes](discrepancy_evaluation/DATA_NOTES.md) for provenance and release
+coverage. Aggregate results are not sample-level group assignments; historical
+Fig. 3 membership maps and exact bin settings are not included in this release.
+
 This is a compact architectural release. Data acquisition and preprocessing
 must follow the licenses and official pipelines of the four benchmarks. Fixed
 discrepancy bins used for cross-model analysis are an evaluation protocol and

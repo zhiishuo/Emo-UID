@@ -1,0 +1,33 @@
+{
+  "source_sha256": "32b54bd933a26761927d2a9c8d7afa53d70ea90d1e1bb71b35428203356ed360",
+  "status": "author_supplied_aggregate_results",
+  "sample_memberships_available": false,
+  "historical_bin_edges_available": false,
+  "model_aliases": {
+    "dmd_bs4": "DMD",
+    "dmd": "DMD",
+    "tfn": "TFN",
+    "lmf": "LMF",
+    "mult": "MulT",
+    "misa": "MISA",
+    "self_mm": "Self-MM",
+    "dlf": "DLF",
+    "emouid": "Emo-UID",
+    "MISR_xxx": "MISR",
+    "TriagedMSA_xxx": "TriagedMSA"
+  },
+  "notes": [
+    "Coordinates are plotted positions, not verified interval boundaries.",
+    "No sample IDs or model predictions were inferred from aggregate values.",
+    "Acc2 is omitted because its protocol is not documented in the source CSV.",
+    "Legacy xxx suffixes are display aliases; numerical values are unchanged.",
+    "Model-level sample counts agree per coordinate; this does not independently verify membership."
+  ],
+  "files": {
+    "ch_sims_bin_results.csv": "bb0e0c4eab1cb8c6dbb44c4c3c6d894be622821ad2028a7e3c56c826b1a57799",
+    "ch_sims_v2_bin_results.csv": "3c61c484de8f3168bc69b703f1fe010e74743b74a8a2f76184f51c89b75556bf",
+    "highest_displayed_bin.csv": "8fbc748d47fa4246ce48a2d77957cdac7785f3a79c0e9eff633d0af9a9e37b08",
+    "mosei_bin_results.csv": "92b747000f0b6554cc5f2d14fc72e6c59fc68a0d5d6a119578917ba899dd5b42",
+    "mosi_bin_results.csv": "d8a944259a3c38a9e55f3fa9b08873f7089e5999631bb6700afd80f53b1fa2c6"
+  }
+}
