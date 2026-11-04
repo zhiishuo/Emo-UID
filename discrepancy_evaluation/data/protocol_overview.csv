@@ -1,0 +1,5 @@
+dataset,stratification,source,measurement,displayed_sample_count,membership_status
+CH-SIMS,annotation_based,official_unimodal_labels,max(T_A_V)-min(T_A_V),436,historical_memberships_not_recovered
+CH-SIMS v2.0,annotation_based,official_unimodal_labels,max(T_A_V)-min(T_A_V),1030,historical_memberships_not_recovered
+CMU-MOSI,fixed_reference,frozen_DMD_predictions,max(T_A_V)-min(T_A_V),655,historical_memberships_not_recovered
+CMU-MOSEI,fixed_reference,frozen_DMD_predictions,max(T_A_V)-min(T_A_V),571,historical_memberships_not_recovered

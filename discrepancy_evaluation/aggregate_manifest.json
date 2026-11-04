@@ -28,6 +28,7 @@
     "ch_sims_v2_bin_results.csv": "3c61c484de8f3168bc69b703f1fe010e74743b74a8a2f76184f51c89b75556bf",
     "highest_displayed_bin.csv": "8fbc748d47fa4246ce48a2d77957cdac7785f3a79c0e9eff633d0af9a9e37b08",
     "mosei_bin_results.csv": "92b747000f0b6554cc5f2d14fc72e6c59fc68a0d5d6a119578917ba899dd5b42",
-    "mosi_bin_results.csv": "d8a944259a3c38a9e55f3fa9b08873f7089e5999631bb6700afd80f53b1fa2c6"
+    "mosi_bin_results.csv": "d8a944259a3c38a9e55f3fa9b08873f7089e5999631bb6700afd80f53b1fa2c6",
+    "protocol_overview.csv": "bc09ee66cbb7a04c2a665b109db90688892855234a95964085c6f27da22f8926"
   }
 }

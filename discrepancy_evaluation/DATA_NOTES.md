@@ -27,6 +27,11 @@ This plotting protocol is separate from percentile-based Low/High-20% tests.
 
 ## CSV interpretation
 
+`protocol_overview.csv` summarizes the four dataset definitions and displayed
+sample coverage without model-performance columns. Counts are summed from the
+author-supplied bins, not independently recovered sample-ID manifests or complete
+benchmark test-set sizes.
+
 `discrepancy_coordinate` is the plotting coordinate, not an interval boundary.
 `sample_count` is the author-supplied count in the displayed group.
 `mae` is the mean absolute error reported for that group.
